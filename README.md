@@ -1,5 +1,5 @@
 # FFmpeg-OpenVINO-VAAPI
-GPU inference & decode patchs for ffmpeg DNN module.
+GPU inference & decode patches for ffmpeg DNN module.
 
 ## Environment
 ### System information
@@ -11,6 +11,36 @@ GPU inference & decode patchs for ffmpeg DNN module.
 - Libva: [2.13.0](https://github.com/intel/libva/releases/tag/2.13.0)
 
 ## Install
+```
+git clone https://github.com/Kizna1ver/FFmpeg-OpenVINO-VAAPI.git
+git submodule update --init --recursive 
+apt install autoconf libtool libdrm-dev xorg xorg-dev openbox libx11-dev libgl1-mesa-glx libgl1-mesa-dev
+```
+### Gmmlib
+```
+cd gmmlib
+mkdir build
+cd build
+cmake $SRC_DIR/gmmlib -DCMAKE_INSTALL_PREFIX=$ROOT_INSTALL_DIR
+make -j8
+make install
+```
+### Libva
+```
+cd libva
+./autogen.sh --prefix=$ROOT_INSTALL_DIR
+make -j8
+make install
+```
+### Media driver
+```
+cd media-driver-intel-media-21.3.5
+mkdir build
+cd build
+cmake $SRC_DIR/MediaSDK -DCMAKE_INSTALL_PREFIX=$ROOT_INSTALL_DIR
+make -j8
+make install
+```
 ### OpenVINO
 [Build OpenVINO™ Inference Engine](https://github.com/openvinotoolkit/openvino/wiki/BuildingCode#build-openvino-inference-engine)
 ```
@@ -23,7 +53,7 @@ cmake --install ./ --prefix /opt/intel/openvino_2022
 source /opt/intel/openvino/setupvars.sh
 ```
 ### FFmpeg
-You can apply this patch to your FFmpeg repo, or directly use FFmpeg in this repo. 
+You can apply this patches to your FFmpeg repo, or directly use FFmpeg in this repo. 
 ```
 cd FFmpeg
 ./configure -extra-cflags=-I/opt/intel/openvino_2022/runtime/include/ie/ --extra-ldflags=-L/opt/intel/openvino_2022/runtime/lib/intel64/ --extra-ldflags=-L/opt/intel/openvino_2022/runtime/3rdparty/tbb/lib/ --enable-libopenvino --disable-lzma --enable-pic --enable-nonfree --disable-stripping --enable-hwaccel=h264_vaapi --enable-shared

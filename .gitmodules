@@ -6,3 +6,7 @@
 	path = FFmpeg
 	url = https://github.com/Kizna1ver/FFmpeg.git
 	branch = feature/dnn-ov-full-gpu-detect
+[submodule "libva"]
+	path = libva
+	url = https://github.com/intel/libva.git
+	branch = v2.13-branch
