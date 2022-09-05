@@ -1,0 +1,185 @@
+From d681667ce3a7a07404ffdf7fdb0911437adde107 Mon Sep 17 00:00:00 2001
+From: Kizna1ver <jianyuliucsu@gmail.com>
+Date: Wed, 31 Aug 2022 10:51:11 +0800
+Subject: [PATCH 2/2] Add GPU decode & inference support in filter
+ dnn_processing with openvino backend
+
+Signed-off-by: Kizna1ver <jianyuliucsu@gmail.com>
+---
+ libavfilter/vf_dnn_processing.c | 95 +++++++++++++++++++++++++++------
+ 1 file changed, 79 insertions(+), 16 deletions(-)
+
+diff --git a/libavfilter/vf_dnn_processing.c b/libavfilter/vf_dnn_processing.c
+index cac096a19f..bed28adb62 100644
+--- a/libavfilter/vf_dnn_processing.c
++++ b/libavfilter/vf_dnn_processing.c
+@@ -34,15 +34,19 @@
+ #include "internal.h"
+ #include "libswscale/swscale.h"
+ #include "libavutil/time.h"
++#include "libavutil/hwcontext.h"
++#include "libavutil/hwcontext_drm.h"
+ 
+ typedef struct DnnProcessingContext {
+     const AVClass *class;
+     DnnContext dnnctx;
++    int full_gpu;
+     struct SwsContext *sws_uv_scale;
+     int sws_uv_height;
+ } DnnProcessingContext;
+ 
+ #define OFFSET(x) offsetof(DnnProcessingContext, dnnctx.x)
++#define OFFSET2(x) offsetof(DnnProcessingContext, x)
+ #define FLAGS AV_OPT_FLAG_FILTERING_PARAM | AV_OPT_FLAG_VIDEO_PARAM
+ static const AVOption dnn_processing_options[] = {
+     { "dnn_backend", "DNN backend",                OFFSET(backend_type),     AV_OPT_TYPE_INT,       { .i64 = 0 },    INT_MIN, INT_MAX, FLAGS, "backend" },
+@@ -54,6 +58,7 @@ static const AVOption dnn_processing_options[] = {
+     { "openvino",    "openvino backend flag",      0,                        AV_OPT_TYPE_CONST,     { .i64 = 2 },    0, 0, FLAGS, "backend" },
+ #endif
+     DNN_COMMON_OPTIONS
++    { "full_gpu",    "enable full_gpu pipeline",   OFFSET2(full_gpu),        AV_OPT_TYPE_INT,       { .i64 = 0 },    0, 1, FLAGS },
+     { NULL }
+ };
+ 
+@@ -65,15 +70,6 @@ static av_cold int init(AVFilterContext *context)
+     return ff_dnn_init(&ctx->dnnctx, DFT_PROCESS_FRAME, context);
+ }
+ 
+-static const enum AVPixelFormat pix_fmts[] = {
+-    AV_PIX_FMT_RGB24, AV_PIX_FMT_BGR24,
+-    AV_PIX_FMT_GRAY8, AV_PIX_FMT_GRAYF32,
+-    AV_PIX_FMT_YUV420P, AV_PIX_FMT_YUV422P,
+-    AV_PIX_FMT_YUV444P, AV_PIX_FMT_YUV410P, AV_PIX_FMT_YUV411P,
+-    AV_PIX_FMT_NV12,
+-    AV_PIX_FMT_NONE
+-};
+-
+ #define LOG_FORMAT_CHANNEL_MISMATCH()                       \
+     av_log(ctx, AV_LOG_ERROR,                               \
+            "the frame's format %s does not match "          \
+@@ -117,10 +113,7 @@ static int check_modelinput_inlink(const DNNData *model_input, const AVFilterLin
+     case AV_PIX_FMT_YUV410P:
+     case AV_PIX_FMT_YUV411P:
+     case AV_PIX_FMT_NV12:
+-        if (model_input->channels != 1) {
+-            LOG_FORMAT_CHANNEL_MISMATCH();
+-            return AVERROR(EIO);
+-        }
++    case AV_PIX_FMT_VAAPI:
+         return 0;
+     default:
+         avpriv_report_missing_feature(ctx, "%s", av_get_pix_fmt_name(fmt));
+@@ -206,6 +199,36 @@ static int config_output(AVFilterLink *outlink)
+ 
+     prepare_uv_scale(outlink);
+ 
++    if (inlink->hw_frames_ctx && ctx->full_gpu) {
++        AVHWFramesContext *frames_ctx = (AVHWFramesContext *)inlink->hw_frames_ctx->data;
++        AVBufferRef *device_ref;
++        AVBufferRef *output_frames_ref = NULL;
++        AVHWFramesContext *output_frames = NULL;
++        int err;
++
++        device_ref      = frames_ctx->device_ref;
++        av_buffer_unref(&outlink->hw_frames_ctx);
++        output_frames_ref = av_hwframe_ctx_alloc(device_ref);
++        if (!output_frames_ref) {
++            err = AVERROR(ENOMEM);
++            return err;
++        }
++
++        output_frames = (AVHWFramesContext*)output_frames_ref->data;
++        output_frames->format    = inlink->format;
++        output_frames->sw_format = frames_ctx->sw_format;
++        output_frames->width     = outlink->w;
++        output_frames->height    = outlink->h;
++        err = av_hwframe_ctx_init(output_frames_ref);
++        if (err < 0) {
++            av_log(ctx, AV_LOG_ERROR, "Failed to initialise output "
++                "frames: %d.\n", err);
++            av_buffer_unref(&output_frames_ref);
++            return err;
++        }
++        outlink->hw_frames_ctx = output_frames_ref;
++    }
++
+     return 0;
+ }
+ 
+@@ -256,7 +279,7 @@ static int flush_frame(AVFilterLink *outlink, int64_t pts, int64_t *out_pts)
+         AVFrame *out_frame = NULL;
+         async_state = ff_dnn_get_result(&ctx->dnnctx, &in_frame, &out_frame);
+         if (out_frame) {
+-            if (isPlanarYUV(in_frame->format))
++            if (isPlanarYUV(in_frame->format) && in_frame->format != AV_PIX_FMT_VAAPI)
+                 copy_uv_planes(ctx, out_frame, in_frame);
+             av_frame_free(&in_frame);
+             ret = ff_filter_frame(outlink, out_frame);
+@@ -308,7 +331,7 @@ static int activate(AVFilterContext *filter_ctx)
+         AVFrame *out_frame = NULL;
+         async_state = ff_dnn_get_result(&ctx->dnnctx, &in_frame, &out_frame);
+         if (out_frame) {
+-            if (isPlanarYUV(in_frame->format))
++            if (isPlanarYUV(in_frame->format) && in_frame->format != AV_PIX_FMT_VAAPI)
+                 copy_uv_planes(ctx, out_frame, in_frame);
+             av_frame_free(&in_frame);
+             ret = ff_filter_frame(outlink, out_frame);
+@@ -344,6 +367,46 @@ static av_cold void uninit(AVFilterContext *ctx)
+     ff_dnn_uninit(&context->dnnctx);
+ }
+ 
++static int dnnprocessing_query_formats(AVFilterContext *avctx)
++{
++    int err;
++    static const enum AVPixelFormat vaapi_fmts[] = {AV_PIX_FMT_VAAPI, AV_PIX_FMT_NONE};
++    static const enum AVPixelFormat yuv_fmts[] = {
++        AV_PIX_FMT_RGB24, AV_PIX_FMT_BGR24,
++        AV_PIX_FMT_GRAY8, AV_PIX_FMT_GRAYF32,
++        AV_PIX_FMT_YUV420P, AV_PIX_FMT_YUV422P,
++        AV_PIX_FMT_YUV444P, AV_PIX_FMT_YUV410P, AV_PIX_FMT_YUV411P,
++        AV_PIX_FMT_NV12,
++        AV_PIX_FMT_NONE
++    };
++    static const enum AVPixelFormat pix_fmts[] = {
++        AV_PIX_FMT_RGB24, AV_PIX_FMT_BGR24,
++        AV_PIX_FMT_GRAY8, AV_PIX_FMT_GRAYF32,
++        AV_PIX_FMT_YUV420P, AV_PIX_FMT_YUV422P,
++        AV_PIX_FMT_YUV444P, AV_PIX_FMT_YUV410P, AV_PIX_FMT_YUV411P,
++        AV_PIX_FMT_NV12, AV_PIX_FMT_VAAPI,
++        AV_PIX_FMT_NONE
++    };
++    // const enum AVPixelFormat *pix_fmts = auto_fmts;
++    AVFilterFormats *in_formats = NULL;
++    AVFilterFormats *out_formats = NULL;
++
++    DnnProcessingContext *ctx = (DnnProcessingContext*)avctx->priv;
++    if (ctx->full_gpu) {
++        // Do not support this currently.
++        ff_set_common_formats(avctx, ff_make_format_list(vaapi_fmts));
++    } else {
++        if ((err = ff_formats_ref(ff_make_format_list(pix_fmts),
++                                &avctx->inputs[0]->outcfg.formats)) < 0)
++            return err;
++        if ((err = ff_formats_ref(ff_make_format_list(yuv_fmts), // TODO
++                                &avctx->outputs[0]->incfg.formats)) < 0)
++            return err;
++    }
++
++    return 0;
++}
++
+ static const AVFilterPad dnn_processing_inputs[] = {
+     {
+         .name         = "default",
+@@ -368,7 +431,7 @@ const AVFilter ff_vf_dnn_processing = {
+     .uninit        = uninit,
+     FILTER_INPUTS(dnn_processing_inputs),
+     FILTER_OUTPUTS(dnn_processing_outputs),
+-    FILTER_PIXFMTS_ARRAY(pix_fmts),
+     .priv_class    = &dnn_processing_class,
+     .activate      = activate,
++    FILTER_QUERY_FUNC(dnnprocessing_query_formats) 
+ };
+-- 
+2.25.1
+

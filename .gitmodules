@@ -1,0 +1,8 @@
+[submodule "openvino"]
+	path = openvino
+	url = https://github.com/Kizna1ver/openvino.git
+	branch = feature/CAPI-VA-Remoteblob
+[submodule "FFmpeg"]
+	path = FFmpeg
+	url = https://github.com/Kizna1ver/FFmpeg.git
+	branch = feature/dnn-ov-full-gpu-detect
