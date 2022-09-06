@@ -58,7 +58,7 @@ You can apply this patches to your FFmpeg repo, or directly use FFmpeg in this r
 cd FFmpeg
 apt install libx264-dev vainfo
 sed -i 's/inference_engine_c_api/openvino_c/g' configure
-./configure -extra-cflags=-I/opt/intel/openvino_2022/runtime/include/ie/ --extra-ldflags=-L/opt/intel/openvino_2022/runtime/lib/intel64/ --extra-ldflags=-L/opt/intel/openvino_2022/runtime/3rdparty/tbb/lib/ --enable-libopenvino --disable-lzma --enable-pic --enable-nonfree --disable-stripping --enable-hwaccel=h264_vaapi --enable-shared
+./configure -extra-cflags=-I/opt/intel/openvino_2022/runtime/include/ie/ --extra-ldflags=-L/opt/intel/openvino_2022/runtime/lib/intel64/ --extra-ldflags=-L/opt/intel/openvino_2022/runtime/3rdparty/tbb/lib/ --enable-libopenvino --disable-lzma --enable-pic --enable-nonfree --disable-stripping --enable-hwaccel=h264_vaapi --enable-libfontconfig --enable-libfreetype --enable-gpl --enable-libx264 --enable-shared
 make -j8
 make install
 ```
@@ -68,10 +68,13 @@ make install
 ### Detect & classify
 ```
 cd resource
-ffmpeg -hwaccel vaapi -vaapi_device /dev/dri/renderD128 -hwaccel_output_format vaapi -i cici.mp4 -vf dnn_detect=dnn_backend=openvino:model=face-detection-adas-0001.xml:input=data:output=detection_out:confidence=0.6:labels=face-detection-adas-0001.label,dnn_classify=dnn_backend=openvino:model=emotions-recognition-retail-0003.xml:input=data:output=prob_emotion:confidence=0.3:labels=emotions-recognition-retail-0003.label:target=face,hwdownload,format=nv12,drawbox=box_source=side_data_detection_bboxes:t=5:color=red,drawtext=text_source=side_data_detection_bboxes:fontcolor=red:fontsize=30 -an -y faces.mp4
+ffmpeg -hwaccel vaapi -vaapi_device /dev/dri/renderD128 -hwaccel_output_format vaapi -i cici672x384.mp4 -vf dnn_detect=dnn_backend=openvino:model=face-detection-adas-0001.xml:input=data:output=detection_out:confidence=0.6:labels=face-detection-adas-0001.label,hwdownload,format=nv12,dnn_classify=dnn_backend=openvino:model=emotions-recognition-retail-0003.xml:input=data:output=prob_emotion:confidence=0.3:labels=emotions-recognition-retail-0003.label:target=face,drawbox=box_source=side_data_detection_bboxes:t=5:color=red,drawtext=text_source=side_data_detection_bboxes:fontcolor=red:fontsize=30 -an -y faces.mp4
 ```
 ### processing
 ```
 cd resource
 ffmpeg -hwaccel vaapi -vaapi_device /dev/dri/renderD128 -hwaccel_output_format vaapi -i cici224.mp4 -vf dnn_processing=dnn_backend=openvino:model=fast-neural-style-mosaic-onnx.xml:input=input1:output=output1,format=rgb24 -y -c:v libx264 cici_gpu.mp4
 ```
+
+## Addition
+[FFmpeg VAAPI decode & ov2.0 inference demo](https://github.com/Kizna1ver/OpenVINO-RemoteBlob-Sample)
