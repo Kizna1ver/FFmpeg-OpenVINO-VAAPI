@@ -50,12 +50,14 @@ mkdir build && cd build
 cmake -DCMAKE_BUILD_TYPE=Release -DENABLE_WHEEL=ON ..
 make -j8
 cmake --install ./ --prefix /opt/intel/openvino_2022
-source /opt/intel/openvino/setupvars.sh
+source /opt/intel/openvino_2022/setupvars.sh
 ```
 ### FFmpeg
 You can apply this patches to your FFmpeg repo, or directly use FFmpeg in this repo. 
 ```
 cd FFmpeg
+apt install libx264-dev vainfo
+sed -i 's/inference_engine_c_api/openvino_c/g' configure
 ./configure -extra-cflags=-I/opt/intel/openvino_2022/runtime/include/ie/ --extra-ldflags=-L/opt/intel/openvino_2022/runtime/lib/intel64/ --extra-ldflags=-L/opt/intel/openvino_2022/runtime/3rdparty/tbb/lib/ --enable-libopenvino --disable-lzma --enable-pic --enable-nonfree --disable-stripping --enable-hwaccel=h264_vaapi --enable-shared
 make -j8
 make install
