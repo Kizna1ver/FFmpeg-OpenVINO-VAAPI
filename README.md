@@ -1,5 +1,5 @@
 # FFmpeg-OpenVINO-VAAPI
-GPU inference & decode patches for ffmpeg DNN module.
+GPU inference & decode patches for ffmpeg DNN module. This project has been merged into cartwheel-ffmpeg of Intel. [Related PR](https://github.com/intel-media-ci/ffmpeg/pull/581) and [patch file](https://github.com/intel-media-ci/cartwheel-ffmpeg/pull/183).
 
 ## Environment
 ### System information
